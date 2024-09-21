@@ -3,6 +3,13 @@ import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-sec
 import mariadb from 'mariadb';
 import fs from 'fs';
 import { promisify } from 'util';
+import Memcached from 'memcached';
+
+const memcachedClient = new Memcached('n11411911-assessment.km2jzi.cfg.apse2.cache.amazonaws.com:11211');
+//memcachedClient.connect();
+
+const cachePrefix = 'publicVideos'; 
+const allowedSortColumns = ['name', 'uploadDate', 'size', 'owner', 'length']; // List of all possible sort columns
 
 
 
@@ -128,7 +135,9 @@ async function createTable() {
 
 
 
-async function insertVideo(data) {
+
+
+const insertVideo = async (data) => {
   try {
     const result = await pool.execute(
       `INSERT INTO videos (ID, name, owner, resolution, uploadDate, private, size, length, fileType) 
@@ -136,12 +145,20 @@ async function insertVideo(data) {
       [data.ID, data.name, data.owner, data.resolution, data.uploadDate, data.private, data.size, data.length, data.fileType]
     );
     console.log(`Inserted a row with the ID: ${result.insertId}`);
+
+    // Invalidate caches for all sort orders
+    await Promise.all(allowedSortColumns.map(async (sortColumn) => {
+      const cacheKey = `${cachePrefix}_${sortColumn}`;
+      await promisify(memcachedClient.delete).bind(memcachedClient)(cacheKey);
+      console.log(`Cache invalidated for sort order: ${sortColumn}`);
+    }));
+
     return null;  // No error
   } catch (error) {
     console.error("Error inserting video: ", error.message);
     return error.message;  // Return the error
   }
-}
+};
 
 const getVideoDataByID = async (ID) => {
   let conn;
@@ -161,23 +178,41 @@ const getPublicVideos = async (sort, search) => {
   let conn;
 
   try {
+    // Only cache if search is empty
+    const useCache = !search || search.trim() === "";
+    const cacheKey = useCache ? `${cachePrefix}_${sort}` : null;  // Create a unique cache key for each sort order
+
+    // Check if the result is cached (only if search is empty)
+    if (useCache && cacheKey) {
+      const cachedResult = await promisify(memcachedClient.get).bind(memcachedClient)(cacheKey);
+      if (cachedResult) {
+        console.log('Cache hit for sort order:', sort);
+        return JSON.parse(cachedResult);
+      }
+      console.log('Cache miss for sort order:', sort);
+    }
+
     conn = await pool.getConnection();
     let res;
-    
-    // Whitelist allowed sort columns to avoid SQL injection
-    const allowedSortColumns = ['name', 'uploadDate', 'resolution']; // Add valid columns
+
     if (!allowedSortColumns.includes(sort)) {
       throw new Error("Invalid sort column");
     }
-    
-    if (!search || search.trim() === "") {
-      // Sort by a whitelisted column
+
+    if (useCache) {
+      // Sort without search
       res = await conn.query(`SELECT * FROM videos WHERE private = FALSE ORDER BY ${sort}`);
     } else {
       // Use parameterized query for search
       res = await conn.query(`SELECT * FROM videos WHERE private = FALSE AND name LIKE ? ORDER BY ${sort}`, [`%${search}%`]);
     }
-    
+
+    // Cache the result (only if search is empty)
+    if (useCache) {
+      await promisify(memcachedClient.set).bind(memcachedClient)(cacheKey, JSON.stringify(res), 300); // Cache for 5 minutes
+      console.log('Cached result for sort order:', sort);
+    }
+
     return res;
   } catch (error) {
     console.error(error.message);
