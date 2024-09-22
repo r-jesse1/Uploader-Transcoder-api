@@ -89,13 +89,20 @@ router.get('/public', (req, res) => {
 
 router.get('/private', JWT.authenticateToken, (req, res) => {
   let user = req.user["cognito:username"];
-  //console.log(req)
-  console.log(`user:   ${JSON.stringify(user)}`)
-  getPrivateVideos(user).then(data => {
-    res.status(200).send({
-      data
+  getPrivateVideos(user)
+    .then(async data => {
+      const newData = await addThumbnails(data);
+      return newData;
+    })
+    .then(data => {
+      res.status(200).send({
+        data
+      });
+    })
+    .catch(error => {
+      console.error('Error fetching private videos:', error);
+      res.status(500).send({ error: 'An error occurred while fetching private videos' });
     });
-  })
 });
 
 

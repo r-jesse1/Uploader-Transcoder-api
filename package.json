@@ -15,6 +15,7 @@
     "@aws-sdk/client-s3": "^3.651.0",
     "@aws-sdk/client-secrets-manager": "^3.654.0",
     "@aws-sdk/client-ssm": "^3.654.0",
+    "@aws-sdk/lib-storage": "^3.654.0",
     "@aws-sdk/s3-request-presigner": "^3.651.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
@@ -42,7 +43,8 @@
     "multer": "^1.4.5-lts.1",
     "nanoid": "^3.3.4",
     "socket.io": "^4.7.5",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "tmp": "^0.2.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.3"

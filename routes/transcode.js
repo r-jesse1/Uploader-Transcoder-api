@@ -12,10 +12,12 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import http from 'http';
 import transcodeVideo from '../util/transcode.js';
-import CreateThumbnail from '../util/createThumbnail.js';  // Adjust if `CreateThumbnail` is a default export
-
+import CreateThumbnail from '../util/createThumbnail.js';
+import { getVideoStream, uploadStream, getVideoToTempFile } from '../controllers/S3Controller.js';
+import { PassThrough } from 'stream';
 const app = express();
 const router = express.Router();
+import { json } from 'express';
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
@@ -35,6 +37,22 @@ const io = new Server(server, {
 
 
 
+const duplicateStream = (inputStream) => {
+    const stream1 = new PassThrough();
+    const stream2 = new PassThrough();
+  
+    // Pipe input stream into two separate PassThrough streams
+    inputStream.pipe(stream1);
+    inputStream.pipe(stream2);
+  
+    return [stream1, stream2];
+  };
+
+
+
+
+
+
 // Update progress using socketio
 //router.post('/transcode', JWT.authenticateToken, async function (req, res) {
 io.on("connection", (socket) => {
@@ -44,56 +62,93 @@ io.on("connection", (socket) => {
         try {
             console.log(req.body);
             console.log(req.body.id)
-            fileType = req.body.fileType
-            const inputPath = "uploads/" + req.body.id
+            let fileType = req.body.fileType
+            const s3input = "videos/" + req.body.id
             const newID = nanoid() + '.' + fileType
+            const s3vidOutput = "videos/" + newID
+            const s3thumbOutput = "thumbnails/" + newID + '.png'
+
             console.log(newID)
-            const newPath = "uploads/" + newID
 
-            const err = await transcodeVideo(inputPath, newPath, req.body.resolution, fileType, socket)
-            if (err) {
-                console.log(err)
-                res.status(500).send({ msg: 'Error transcoding video', error: err.message });
-            }
-            else {
+            const tempFilePath  = await getVideoToTempFile(s3input)
 
+            const transcodedStream = transcodeVideo(tempFilePath, req.body.resolution, fileType, socket)
 
-                CreateThumbnail(newID, newPath);
-                ffmpeg.ffprobe(newPath, async function (err, metadata) {
-                    if (err) {
-                        res.status(400).send({ msg: err });
-                    }
-
-                    else {
-                        const user = JWT.decodeUserToken(req)
-                        formattedMetadata = {
-                            ID: newID,
-                            name: req.body.name,
-                            owner: user,
-                            resolution: Math.min(metadata.streams[0].width, metadata.streams[0].height),
-                            uploadDate: DateTime.now().toFormat('yyyy-MM-dd'),
-                            private: req.body.private,
-                            size: metadata.format.size / 1048576,
-                            length: Math.floor(metadata.format.duration),
-                            fileType: fileType
-                        }
-
-                        let err = await insertVideo(formattedMetadata);
+            const thumbnailStream = CreateThumbnail(tempFilePath, newID);
+ 
+            ffmpeg.ffprobe(tempFilePath, async function (err, metadata) {
                         if (err) {
-                            res.status(400).send({ msg: err });
+                            //res.status(400).send({ msg: err });
                         }
+    
                         else {
-                            console.log(req.body);
-                            //console.dir(metadata);
-                            console.log("File Uploaded");
-                        }
+                            const user = await JWT.decodeUserToken(req)
+                            const formattedMetadata = {
+                                ID: newID,
+                                name: req.body.name,
+                                owner: user,
+                                resolution: Math.min(metadata.streams[0].width, metadata.streams[0].height),
+                                uploadDate: DateTime.now().toFormat('yyyy-MM-dd'),
+                                private: req.body.private,
+                                size: metadata.format.size / 1048576,
+                                length: Math.floor(metadata.format.duration),
+                                fileType: fileType
+                            }
+    
+                            let err = await insertVideo(formattedMetadata);
+                            if (err) {
+                                //res.status(400).send({ msg: err });
+                            }
                     }
-                })
-            }
+        })
+            await Promise.all([
+            uploadStream(transcodedStream, s3vidOutput),
+            uploadStream(thumbnailStream, s3thumbOutput)
+        ]);
+
+            console.log('Transcoding and thumbnail creation completed.');
+            // if (err) {
+            //     console.log(err)
+            //     //res.status(500).send({ msg: 'Error transcoding video', error: err.message });
+            // }
+            // else {
+
+            //     CreateThumbnail(newID, newPath);
+            //     ffmpeg.ffprobe(newPath, async function (err, metadata) {
+            //         if (err) {
+            //             //res.status(400).send({ msg: err });
+            //         }
+
+            //         else {
+            //             const user = JWT.decodeUserToken(req)
+            //             formattedMetadata = {
+            //                 ID: newID,
+            //                 name: req.body.name,
+            //                 owner: user,
+            //                 resolution: Math.min(metadata.streams[0].width, metadata.streams[0].height),
+            //                 uploadDate: DateTime.now().toFormat('yyyy-MM-dd'),
+            //                 private: req.body.private,
+            //                 size: metadata.format.size / 1048576,
+            //                 length: Math.floor(metadata.format.duration),
+            //                 fileType: fileType
+            //             }
+
+            //             let err = await insertVideo(formattedMetadata);
+            //             if (err) {
+            //                 //res.status(400).send({ msg: err });
+            //             }
+            //             else {
+            //                 console.log(req.body);
+            //                 //console.dir(metadata);
+            //                 console.log("File Uploaded");
+            //             }
+            //         }
+            //     })
+            // }
         }
         catch (err) {
             console.log(err)
-            res.status(500).send({ msg: 'Error transcoding video', error: err.message });
+            //res.status(500).send({ msg: 'Error transcoding video', error: err.message });
         }
     })
 })

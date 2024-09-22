@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import * as jwtAWS from "aws-jwt-verify";
+import { json } from "express";
 
 // Using a fixed authentication secret for demonstration purposes.
 // Ideally this would be stored in a secrets manager and retrieved here.
@@ -69,7 +70,7 @@ const authenticateToken = async (req, res, next) => {
 async function decodeUserToken(req) {
    // We are using Bearer auth.  The token is in the authorization header.
 
-   console.log(`req: ${req}`)
+   //console.log(`req: ${req}`)
 
    const authHeader = req.headers["authorization"];
    console.log(authHeader)
@@ -85,7 +86,8 @@ async function decodeUserToken(req) {
    // Check that the token is valid
    try {
       const user = await idVerifier.verify(token);
-      return user.username
+   console.log(`username==: ${user['cognito:username']}`)
+      return user['cognito:username']
    } catch (err) {
       console.log(
          err.name,
@@ -95,6 +97,32 @@ async function decodeUserToken(req) {
    }
 };
 
+// async function decodeUserToken(req) {
+//    // Log the request for debugging
+//    console.log(`req: ${JSON.stringify(req)}`);
+
+//    // Extract the authorization header from the request
+//    const authHeader = req.headers && req.headers["authorization"];
+//    console.log("Authorization Header:", authHeader);
+   
+//    // Extract the token from the authorization header
+//    const token = authHeader && authHeader.split(' ')[1];
+//    console.log("Token:", token);
+
+//    if (!token) {
+//       console.log("JSON web token missing.");
+//       return 401; // Or handle as appropriate for your application
+//    }
+
+//    // Check that the token is valid
+//    try {
+//       const user = await idVerifier.verify(token);
+//       return user.username;
+//    } catch (err) {
+//       console.log(err.name, err.message);
+//       return 401; // Or handle as appropriate for your application
+//    }
+// }
 
 
 
