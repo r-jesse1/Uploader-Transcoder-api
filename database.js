@@ -248,4 +248,34 @@ const deleteVideoDataByID = async (ID) => {
   }
 };
 
-export { createDbConnection, insertVideo, getVideoDataByID, getPublicVideos, getPrivateVideos, deleteVideoDataByID };
+
+function setTranProgress(progressID, progress) {
+  return new Promise((resolve, reject) => {
+      memcachedClient.set(progressID, progress, 3600, (err) => {
+          if (err) {
+              console.error('Error setting progress in Memcached:', err);
+              reject(err);
+          } else {
+            console.log(`setting id ${progressID} progress: ${progress}`)
+            
+              resolve();
+          }
+      });
+  });
+}
+
+
+function getTranProgress(progressID) {
+  return new Promise((resolve, reject) => {
+    memcachedClient.get(progressID, (err, data) => {
+          if (err) {
+              reject(err);
+          } else {
+              resolve(data ? JSON.parse(data) : null);
+          }
+      });
+  });
+}
+
+
+export { createDbConnection, insertVideo, getVideoDataByID, getPublicVideos, getPrivateVideos, deleteVideoDataByID, getTranProgress, setTranProgress };

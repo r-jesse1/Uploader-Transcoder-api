@@ -3,7 +3,7 @@ import { path as ffmpegPath } from '@ffmpeg-installer/ffmpeg';
 import { path as ffprobePath } from '@ffprobe-installer/ffprobe';
 import ffmpeg from 'fluent-ffmpeg';
 import { PassThrough } from 'stream';
-
+import { setTranProgress } from '../database.js';
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
 
@@ -48,24 +48,45 @@ ffmpeg.setFfprobePath(ffprobePath);
 
 
   
-  function transcodeVideo(inputStream) {
+  function transcodeVideo(inputStream, resolution, format, progressID) {
+    console.log(`transcoding video with id ${progressID}`)
     const transcodedStream = new PassThrough();
-  
+    let totalTime = 0;
     ffmpeg(inputStream)
       .outputFormat('mp4')
       .videoCodec('libx264')
       .audioCodec('aac')
+    //   .format(format)
+    //   .size(resolution)
       .outputOptions([
         '-movflags frag_keyframe+empty_moov',  // Important for streaming MP4s
         '-preset fast',  // Choose an appropriate encoding preset
         '-profile:v baseline',  // Ensures compatibility with MP4 players
         '-level 3.0'
       ])
+        .on('codecData', data => {
+            totalTime = parseInt(data.duration.replace(/:/g, ''));
+        })
+        .on('progress', progress => {
+            const time = parseInt(progress.timemark.replace(/:/g, ''));
+            const percent = (time / totalTime) * 100;
+            console.log(percent);
+
+            try {
+                // Save progress in Memcached
+                setTranProgress(progressID, percent);
+                //socket.emit("progress", { progress: percent });
+            } catch (err) {
+                console.error('Error saving progress in Memcached:', err);
+            }
+        })
       .on('error', (err) => {
         console.error("Error during transcoding:", err);
         transcodedStream.destroy(); // Destroy the stream if an error occurs
       })
       .on('end', () => {
+        //socket.emit("progress", { progress: 100 });
+        setTranProgress(progressID, 100);
         console.log("Transcoding finished.");
         transcodedStream.end(); // Properly end the stream
       })
@@ -73,55 +94,6 @@ ffmpeg.setFfprobePath(ffprobePath);
   
     return transcodedStream;
   }
-
-
-//   function transcodeAndCreateThumbnail(inputStream, socket) {
-//     const transcodedStream = new PassThrough();
-//     const thumbnailStream = new PassThrough();
-  
-//     // FFmpeg process for transcoding
-//     const transcodingProcess = ffmpeg(inputStream)
-//       .outputFormat('mp4')
-//       .videoCodec('libx264')
-//       .audioCodec('aac')
-//       .outputOptions([
-//         '-movflags frag_keyframe+empty_moov',
-//         '-preset fast',
-//         '-profile:v baseline',
-//         '-level 3.0'
-//       ])
-//       .on('error', (err) => {
-//         console.error("Error during transcoding:", err);
-//       })
-//       .on('progress', progress => {
-//         socket.emit("progress", { progress: progress.percent });
-//       })
-//       .on('end', () => {
-//         console.log("Transcoding finished.");
-//         socket.emit("progress", { progress: 100 });
-//       })
-//       .pipe(transcodedStream);
-  
-//     // Separate FFmpeg process for thumbnail generation
-//     ffmpeg(inputStream)
-//       .seekInput('00:00:05') // Jump to a specific time in the video, like 5 seconds
-//       .frames(1) // Extract only one frame
-//       .outputOptions('-vf', 'scale=720:-1') // Resize the thumbnail to 720p width
-//       .outputFormat('image2') // Output as an image format
-//       .on('error', (err) => {
-//         console.error("Error generating thumbnail:", err);
-//       })
-//       .on('end', () => {
-//         console.log("Thumbnail created.");
-//       })
-//       .pipe(thumbnailStream);
-  
-//     // Return both streams (transcoded video and thumbnail)
-//     return {
-//       transcodedStream,
-//       thumbnailStream
-//     };
-//   }
 
 
 export default transcodeVideo;

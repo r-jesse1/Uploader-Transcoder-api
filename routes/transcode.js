@@ -5,7 +5,7 @@ import { path as ffprobePath } from '@ffprobe-installer/ffprobe';
 import ffmpeg from 'fluent-ffmpeg';
 import express from 'express';
 import { nanoid } from 'nanoid';
-import { insertVideo } from '../database.js';
+import { getTranProgress, insertVideo } from '../database.js';
 import { DateTime } from 'luxon';
 import JWT from '../util/jwt.js';
 import { Server } from 'socket.io';
@@ -62,6 +62,7 @@ io.on("connection", (socket) => {
         try {
             console.log(req.body);
             console.log(req.body.id)
+            const progressID = req.body.progressID;
             let fileType = req.body.fileType
             const s3input = "videos/" + req.body.id
             const newID = nanoid() + '.' + fileType
@@ -69,10 +70,11 @@ io.on("connection", (socket) => {
             const s3thumbOutput = "thumbnails/" + newID + '.png'
 
             console.log(newID)
+            console.log(`got trans id ${progressID}`)
 
             const tempFilePath  = await getVideoToTempFile(s3input)
 
-            const transcodedStream = transcodeVideo(tempFilePath, req.body.resolution, fileType, socket)
+            const transcodedStream = transcodeVideo(tempFilePath, req.body.resolution, fileType, progressID)
 
             const thumbnailStream = CreateThumbnail(tempFilePath, newID);
  
@@ -151,6 +153,40 @@ io.on("connection", (socket) => {
             //res.status(500).send({ msg: 'Error transcoding video', error: err.message });
         }
     })
+
+    socket.on("requestProgress", async (data) => {
+        console.log(`data: ${data}`)
+
+        try {
+            const progressID = data;
+            console.log(`got request${progressID}`)
+            const percent = await getTranProgress(progressID);
+            console.log(`progress is:  ${percent}`)
+
+            if (percent) {
+                socket.emit("progress", { progress: percent });
+            console.log(`sent ${percent}`)
+
+            }
+        } catch (err) {
+            console.error("Error fetching progress from Memcached:", err);
+        }
+    });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 })
 
 
