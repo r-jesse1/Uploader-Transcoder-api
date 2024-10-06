@@ -6,7 +6,6 @@ import { promisify } from 'util';
 import Memcached from 'memcached';
 
 const memcachedClient = new Memcached('n11411911-assessment.km2jzi.cfg.apse2.cache.amazonaws.com:11211');
-//memcachedClient.connect();
 
 const cachePrefix = 'publicVideos'; 
 const allowedSortColumns = ['name', 'uploadDate', 'size', 'owner', 'length']; // List of all possible sort columns
@@ -21,7 +20,7 @@ async function getSecrets() {
   try {
     const response = await client.send(new GetSecretValueCommand({
       SecretId: secretName,
-      VersionStage: "AWSCURRENT", // Default to AWSCURRENT
+      VersionStage: "AWSCURRENT",
     }));
 
     const secretString = response.SecretString;
@@ -58,33 +57,6 @@ async function createPool() {
 // Export the pool for use in other functions
 const pool = await createPool();
 
-
-
-
-
-
-// // // Create a MariaDB connection pool
-// const pool = mariadb.createPool({
-//   host: 'n11411911-assessment-mariadb.ce2haupt2cta.ap-southeast-2.rds.amazonaws.com', 
-//   user: "admin", 
-//   password: "secretpassword", 
-//   database: 'n11411911', 
-//   connectionLimit: 5
-// });
-
-
-
-// let SecretsManagerClient = new SecretsManager({
-//   region: "ap-southeast-2",
-// });
-
-// const SecretsManagerResult = await SecretsManagerClient
-//   .getSecretValue({
-//     SecretId: secret_name,
-//   })
-//   .promise();
-
-// console.log(SecretsManagerResult)
 createTable();
 
 async function createDbConnection() {
@@ -127,8 +99,25 @@ async function createTable() {
         fileType VARCHAR(50) NOT NULL
       )
     `);
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS transcode_journal (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        video_id VARCHAR(50) NOT NULL,
+        progress_id VARCHAR(50) NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        user VARCHAR(50) NOT NULL,
+        resolution VARCHAR(50),
+        fileType VARCHAR(50),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (video_id) REFERENCES videos(ID)
+      )
+    `);
+
   } catch (error) {
-    console.error("Error creating table: ", error.message);
+    console.error("Error creating tables: ", error.message);
+  } finally {
+    if (conn) conn.release();
   }
 }
 
@@ -240,6 +229,14 @@ const deleteVideoDataByID = async (ID) => {
   try {
     conn = await pool.getConnection();
     const res = await conn.query(`DELETE FROM videos WHERE ID = ?`, [ID]);
+
+    // Invalidate caches for all sort orders
+    await Promise.all(allowedSortColumns.map(async (sortColumn) => {
+      const cacheKey = `${cachePrefix}_${sortColumn}`;
+      await promisify(memcachedClient.delete).bind(memcachedClient)(cacheKey);
+      console.log(`Cache invalidated for sort order: ${sortColumn}`);
+    }));
+
     return res;
   } catch (error) {
     console.error(error.message);
@@ -278,4 +275,54 @@ function getTranProgress(progressID) {
 }
 
 
-export { createDbConnection, insertVideo, getVideoDataByID, getPublicVideos, getPrivateVideos, deleteVideoDataByID, getTranProgress, setTranProgress };
+const createTranscodingJournal = async (videoID, progressID, resolution, fileType, user) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const query = `
+      INSERT INTO transcode_journal (video_id, progress_id, status, resolution, fileType, user)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+    await conn.query(query, [videoID, progressID, 'started', resolution, fileType, user]);
+  } catch (error) {
+    console.error("Error creating transcoding entry: ", error.message);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+const updateTranscodingJournal = async (progressID, status) => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const query = `
+      UPDATE transcode_journal
+      SET status = ?
+      WHERE progress_id = ?
+    `;
+    await conn.query(query, [status, message, progressID]);
+  } catch (error) {
+    console.error("Error updating transcoding status: ", error.message);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+const getIncompleteTranscodes = async () => {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    const query = `
+      SELECT * FROM transcode_journal
+      WHERE status != 'completed'
+    `;
+    const result = await conn.query(query);
+    return result;
+  } catch (error) {
+    console.error("Error fetching incomplete transcodes: ", error.message);
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+export { createDbConnection, insertVideo, getVideoDataByID, getPublicVideos, getPrivateVideos, deleteVideoDataByID, getTranProgress, setTranProgress, createTranscodingJournal, updateTranscodingJournal, getIncompleteTranscodes };

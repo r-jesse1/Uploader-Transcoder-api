@@ -2,7 +2,7 @@ import createError from "http-errors";
 import express from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
-
+import { handleIncompleteTranscodes } from './util/transcode.js';
 import usersRouter from "./routes/users.js";
 import videoRouter from "./routes/video.js";
 import streamRouter from "./routes/stream.js";
@@ -69,6 +69,9 @@ app.use(function (err, req, res, next) {
   res.status(err.status || 500);
   res.json(err);
 });
+
+handleIncompleteTranscodes();
+
 
 
 export default app;

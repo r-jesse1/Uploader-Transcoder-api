@@ -138,12 +138,18 @@ router.delete('/', JWT.authenticateToken, (req, res) => {
       });
       return
     }
+    try {
     deleteVideoDataByID(id).then(_ => { // Metadata
       deleteVideo(id) // S3
       res.status(200).send({
         msg: "video deleted"
       });
     })
+  } catch (err) {
+    res.status(400).send({
+      msg: err
+    });
+  }
   });
 })
 

@@ -5,13 +5,13 @@ import { path as ffprobePath } from '@ffprobe-installer/ffprobe';
 import ffmpeg from 'fluent-ffmpeg';
 import express from 'express';
 import { nanoid } from 'nanoid';
-import { getTranProgress, insertVideo } from '../database.js';
+import { getTranProgress, insertVideo, createTranscodingJournal, updateTranscodingJournal } from '../database.js';
 import { DateTime } from 'luxon';
 import JWT from '../util/jwt.js';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import http from 'http';
-import transcodeVideo from '../util/transcode.js';
+import { transcodeVideo } from '../util/transcode.js';
 import CreateThumbnail from '../util/createThumbnail.js';
 import { getVideoStream, uploadStream, getVideoToTempFile } from '../controllers/S3Controller.js';
 import { PassThrough } from 'stream';
@@ -37,40 +37,28 @@ const io = new Server(server, {
 
 
 
-const duplicateStream = (inputStream) => {
-    const stream1 = new PassThrough();
-    const stream2 = new PassThrough();
-  
-    // Pipe input stream into two separate PassThrough streams
-    inputStream.pipe(stream1);
-    inputStream.pipe(stream2);
-  
-    return [stream1, stream2];
-  };
 
+  router.post('/', JWT.authenticateToken, async (req, res) => {
 
-
-
-
-
-// Update progress using socketio
-//router.post('/transcode', JWT.authenticateToken, async function (req, res) {
-io.on("connection", (socket) => {
-    // console.log(`User connected: ${socket.id}`)
-    socket.on("transcode", async (req) => {
         console.log(req)
         try {
             console.log(req.body);
             console.log(req.body.id)
-            const progressID = req.body.progressID;
+            const progressID = nanoid()
             let fileType = req.body.fileType
             const s3input = "videos/" + req.body.id
             const newID = nanoid() + '.' + fileType
+            const user = await JWT.decodeUserToken(req)
             const s3vidOutput = "videos/" + newID
             const s3thumbOutput = "thumbnails/" + newID + '.png'
-
+            console.log(progressID);
+            res.status(200).json({ progressID });
             console.log(newID)
             console.log(`got trans id ${progressID}`)
+
+
+
+            createTranscodingJournal(req.body.id, progressID, req.body.resolution, fileType, user)
 
             const tempFilePath  = await getVideoToTempFile(s3input)
 
@@ -81,10 +69,10 @@ io.on("connection", (socket) => {
             ffmpeg.ffprobe(tempFilePath, async function (err, metadata) {
                         if (err) {
                             //res.status(400).send({ msg: err });
+                            console.log(err)
                         }
     
                         else {
-                            const user = await JWT.decodeUserToken(req)
                             const formattedMetadata = {
                                 ID: newID,
                                 name: req.body.name,
@@ -109,51 +97,17 @@ io.on("connection", (socket) => {
         ]);
 
             console.log('Transcoding and thumbnail creation completed.');
-            // if (err) {
-            //     console.log(err)
-            //     //res.status(500).send({ msg: 'Error transcoding video', error: err.message });
-            // }
-            // else {
-
-            //     CreateThumbnail(newID, newPath);
-            //     ffmpeg.ffprobe(newPath, async function (err, metadata) {
-            //         if (err) {
-            //             //res.status(400).send({ msg: err });
-            //         }
-
-            //         else {
-            //             const user = JWT.decodeUserToken(req)
-            //             formattedMetadata = {
-            //                 ID: newID,
-            //                 name: req.body.name,
-            //                 owner: user,
-            //                 resolution: Math.min(metadata.streams[0].width, metadata.streams[0].height),
-            //                 uploadDate: DateTime.now().toFormat('yyyy-MM-dd'),
-            //                 private: req.body.private,
-            //                 size: metadata.format.size / 1048576,
-            //                 length: Math.floor(metadata.format.duration),
-            //                 fileType: fileType
-            //             }
-
-            //             let err = await insertVideo(formattedMetadata);
-            //             if (err) {
-            //                 //res.status(400).send({ msg: err });
-            //             }
-            //             else {
-            //                 console.log(req.body);
-            //                 //console.dir(metadata);
-            //                 console.log("File Uploaded");
-            //             }
-            //         }
-            //     })
-            // }
+            updateTranscodingJournal(progressID, "completed")
         }
         catch (err) {
             console.log(err)
-            //res.status(500).send({ msg: 'Error transcoding video', error: err.message });
+            res.status(500).send({ msg: 'Error transcoding video', error: err.message });
         }
     })
 
+
+io.on("connection", (socket) => {
+    console.log("Socket connected")
     socket.on("requestProgress", async (data) => {
         console.log(`data: ${data}`)
 
