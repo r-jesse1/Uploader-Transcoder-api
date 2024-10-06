@@ -77,7 +77,7 @@ async function createDbConnection() {
   } catch (error) {
     console.error("Error in createDbConnection: ", error.message);
   } finally {
-    if (conn) conn.release(); // Release connection back to the pool
+    if (conn) conn.release();
   }
 }
 
@@ -142,10 +142,10 @@ const insertVideo = async (data) => {
       console.log(`Cache invalidated for sort order: ${sortColumn}`);
     }));
 
-    return null;  // No error
+    return null;  
   } catch (error) {
     console.error("Error inserting video: ", error.message);
-    return error.message;  // Return the error
+    return error.message;  
   }
 };
 

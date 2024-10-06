@@ -18,7 +18,7 @@ import JWT from '../util/jwt.js';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import http from 'http';
-import CreateThumbnail from '../util/createThumbnail.js';
+import { CreateThumbnail } from '../util/createThumbnail.js';
 import { addThumbnails, getVideoURL, deleteVideo } from '../controllers/S3Controller.js';
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm";
 const app = express();

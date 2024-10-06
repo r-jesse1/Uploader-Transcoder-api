@@ -10,7 +10,7 @@ import { nanoid } from 'nanoid';
 import { insertVideo } from '../database.js';
 import { DateTime } from 'luxon';
 import JWT from '../util/jwt.js';
-import CreateThumbnail from '../util/createThumbnail.js';  // Adjust import if CreateThumbnail is a default export
+import { CreateUploadThumbnail } from '../util/createThumbnail.js';  // Adjust import if CreateThumbnail is a default export
 import fs from 'fs';
 import * as S3 from '@aws-sdk/client-s3';
 
@@ -93,10 +93,8 @@ router.post('/', JWT.authenticateToken, (req, res) => {
                 }
 
 
-
-
                 try {
-                    await CreateThumbnail(req.file.filename, inputPath)
+                    await CreateUploadThumbnail(req.file.filename, inputPath)
                     .then(_ => {
                         return s3Client.send(
                             new S3.PutObjectCommand({
@@ -130,6 +128,22 @@ router.post('/', JWT.authenticateToken, (req, res) => {
                         console.log(formattedMetadata)
                         try {
                             let err = await insertVideo(formattedMetadata);
+                            fs.unlink(inputPath, (err) => {
+                                if (err) {
+                                  console.error(`Failed to delete video file: ${err}`);
+                                } else {
+                                  console.log("Video file deleted.");
+                                }
+                              });
+                    
+                              fs.unlink("./thumbnails/" + req.file.filename + ".png", (err) => {
+                                if (err) {
+                                  console.error(`Failed to delete thumbnail file: ${err}`);
+                                } else {
+                                  console.log("Thumbnail file deleted.");
+                                }
+                              });
+
                             if (err) {
                                 res.status(400).send({ msg: err });
                             } else {

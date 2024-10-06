@@ -15,8 +15,8 @@ ffmpeg.setFfprobePath(ffprobePath);
       .outputFormat('mp4')
       .videoCodec('libx264')
       .audioCodec('aac')
-    //   .format(format)
-    //   .size(resolution)
+       .format(format)
+       .size(resolution)
       .outputOptions([
         '-movflags frag_keyframe+empty_moov',
         '-preset fast',

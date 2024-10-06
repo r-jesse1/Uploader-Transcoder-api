@@ -12,7 +12,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import http from 'http';
 import { transcodeVideo } from '../util/transcode.js';
-import CreateThumbnail from '../util/createThumbnail.js';
+import { CreateThumbnail } from '../util/createThumbnail.js';
 import { getVideoStream, uploadStream, getVideoToTempFile } from '../controllers/S3Controller.js';
 import { PassThrough } from 'stream';
 const app = express();

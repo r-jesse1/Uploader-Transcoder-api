@@ -70,6 +70,7 @@ app.use(function (err, req, res, next) {
   res.json(err);
 });
 
+// Run during startup
 handleIncompleteTranscodes();
 
 
