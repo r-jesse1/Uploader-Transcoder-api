@@ -71,7 +71,7 @@ app.use(function (err, req, res, next) {
 });
 
 // Run during startup
-handleIncompleteTranscodes();
+//handleIncompleteTranscodes();
 
 
 

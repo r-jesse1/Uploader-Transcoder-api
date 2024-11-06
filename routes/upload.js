@@ -13,6 +13,8 @@ import JWT from '../util/jwt.js';
 import { CreateUploadThumbnail } from '../util/createThumbnail.js';  // Adjust import if CreateThumbnail is a default export
 import fs from 'fs';
 import * as S3 from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+
 
 const router = express.Router();
 
@@ -61,6 +63,75 @@ function checkFileType(file, cb) {
         cb('Error: Videos Only!');
     }
 }
+
+
+router.post('/', JWT.authenticateToken, async (req, res) => {
+    let user = req.user["cognito:username"];
+    const uploadID = nanoid();
+    const progressID = nanoid();
+    const newID = nanoid();
+    const fileKey = `uploads/${uploadID}`;
+    let privateVal = "false";
+    if (req.body.private) {
+        privateVal = "true"
+    }
+    try {
+        // Generate a presigned URL with user metadata
+        const url = await getSignedUrl(
+            s3Client,
+            new S3.PutObjectCommand({
+                Bucket: bucketName,
+                Key: fileKey,
+                ContentType: req.body.contentType,
+                Metadata: {
+                    user: user,
+                    private: privateVal,
+                    name: req.body.name,
+                    id: uploadID,
+                    progressID: progressID,
+                    newID: newID,
+                    new: "true"
+                }
+            }),
+            { expiresIn: 3600 }
+        );
+
+        res.status(200).json({ url, key: fileKey });
+    } catch (err) {
+        console.error("Error generating presigned URL", err);
+        res.status(500).send({ msg: "Could not generate presigned URL" });
+    }
+});
+
+// const jobMessage = {
+//     id: req.body.id,
+//     progressID: progressID,
+//     s3input: s3input,
+//     s3vidOutput: s3vidOutput,
+//     s3thumbOutput: s3thumbOutput,
+//     resolution: req.body.resolution,
+//     fileType: fileType,
+//     user: user,
+//     newID: newID,
+//     private: req.body.private,
+//     name: req.body.name
+// };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -18,6 +18,7 @@ import { PassThrough } from 'stream';
 const app = express();
 const router = express.Router();
 import { json } from 'express';
+import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
@@ -35,75 +36,129 @@ const io = new Server(server, {
     }
 });
 
+const sqsClient  = new SQSClient({
+    region: "ap-southeast-2",
+  });
+  
+const QUEUE_URL = "https://sqs.ap-southeast-2.amazonaws.com/901444280953/n11411911-A3-queue";
+
+router.post('/', JWT.authenticateToken, async (req, res) => {
+    try {
+        const progressID = nanoid();
+        const fileType = req.body.fileType;
+        const s3input = `videos/${req.body.id}`;
+        const newID = `${nanoid()}.${fileType}`;
+        const user = await JWT.decodeUserToken(req);
+        const s3vidOutput = `videos/${newID}`;
+        const s3thumbOutput = `thumbnails/${newID}.png`;
+
+        // Respond immediately to the user with the progress ID
+        res.status(200).json({ progressID });
+
+        // Save the job info in the database or tracking system
+        createTranscodingJournal(req.body.id, progressID, req.body.resolution, fileType, user);
+
+        // Prepare the message for SQS with all necessary information for the worker
+        const jobMessage = {
+            id: req.body.id,
+            progressID: progressID,
+            s3input: s3input,
+            s3vidOutput: s3vidOutput,
+            s3thumbOutput: s3thumbOutput,
+            resolution: req.body.resolution,
+            fileType: fileType,
+            user: user,
+            newID: newID,
+            private: req.body.private,
+            name: req.body.name
+        };
+
+        // Send the message to SQS
+        const params = {
+            QueueUrl: QUEUE_URL,
+            MessageBody: JSON.stringify(jobMessage),
+        };
+
+        const command = new SendMessageCommand(params);
+        const response = await sqsClient.send(command);
+
+        console.log(`Transcoding job enqueued with progress ID: ${progressID}`, response.MessageId);
+    } catch (err) {
+        console.error('Error enqueuing transcoding job:', err);
+        res.status(500).send({ msg: 'Error enqueuing transcoding job', error: err.message });
+    }
+});
 
 
 
-  router.post('/', JWT.authenticateToken, async (req, res) => {
-
-        console.log(req)
-        try {
-            console.log(req.body);
-            console.log(req.body.id)
-            const progressID = nanoid()
-            let fileType = req.body.fileType
-            const s3input = "videos/" + req.body.id
-            const newID = nanoid() + '.' + fileType
-            const user = await JWT.decodeUserToken(req)
-            const s3vidOutput = "videos/" + newID
-            const s3thumbOutput = "thumbnails/" + newID + '.png'
-            console.log(progressID);
-            res.status(200).json({ progressID });
-            console.log(newID)
-            console.log(`got trans id ${progressID}`)
 
 
+//   router.post('/', JWT.authenticateToken, async (req, res) => {
 
-            createTranscodingJournal(req.body.id, progressID, req.body.resolution, fileType, user)
+//         console.log(req)
+//         try {
+//             console.log(req.body);
+//             console.log(req.body.id)
+//             const progressID = nanoid()
+//             let fileType = req.body.fileType
+//             const s3input = "videos/" + req.body.id
+//             const newID = nanoid() + '.' + fileType
+//             const user = await JWT.decodeUserToken(req)
+//             const s3vidOutput = "videos/" + newID
+//             const s3thumbOutput = "thumbnails/" + newID + '.png'
+//             console.log(progressID);
+//             res.status(200).json({ progressID });
+//             console.log(newID)
+//             console.log(`got trans id ${progressID}`)
 
-            const tempFilePath  = await getVideoToTempFile(s3input)
 
-            const transcodedStream = transcodeVideo(tempFilePath, req.body.resolution, fileType, progressID)
 
-            const thumbnailStream = CreateThumbnail(tempFilePath, newID);
+//             createTranscodingJournal(req.body.id, progressID, req.body.resolution, fileType, user)
+
+//             const tempFilePath  = await getVideoToTempFile(s3input)
+
+//             const transcodedStream = transcodeVideo(tempFilePath, req.body.resolution, fileType, progressID)
+
+//             const thumbnailStream = CreateThumbnail(tempFilePath, newID);
  
-            ffmpeg.ffprobe(tempFilePath, async function (err, metadata) {
-                        if (err) {
-                            //res.status(400).send({ msg: err });
-                            console.log(err)
-                        }
+//             ffmpeg.ffprobe(tempFilePath, async function (err, metadata) {
+//                         if (err) {
+//                             //res.status(400).send({ msg: err });
+//                             console.log(err)
+//                         }
     
-                        else {
-                            const formattedMetadata = {
-                                ID: newID,
-                                name: req.body.name,
-                                owner: user,
-                                resolution: Math.min(metadata.streams[0].width, metadata.streams[0].height),
-                                uploadDate: DateTime.now().toFormat('yyyy-MM-dd'),
-                                private: req.body.private,
-                                size: metadata.format.size / 1048576,
-                                length: Math.floor(metadata.format.duration),
-                                fileType: fileType
-                            }
+//                         else {
+//                             const formattedMetadata = {
+//                                 ID: newID,
+//                                 name: req.body.name,
+//                                 owner: user,
+//                                 resolution: Math.min(metadata.streams[0].width, metadata.streams[0].height),
+//                                 uploadDate: DateTime.now().toFormat('yyyy-MM-dd'),
+//                                 private: req.body.private,
+//                                 size: metadata.format.size / 1048576,
+//                                 length: Math.floor(metadata.format.duration),
+//                                 fileType: fileType
+//                             }
     
-                            let err = await insertVideo(formattedMetadata);
-                            if (err) {
-                                //res.status(400).send({ msg: err });
-                            }
-                    }
-        })
-            await Promise.all([
-            uploadStream(transcodedStream, s3vidOutput),
-            uploadStream(thumbnailStream, s3thumbOutput)
-        ]);
+//                             let err = await insertVideo(formattedMetadata);
+//                             if (err) {
+//                                 //res.status(400).send({ msg: err });
+//                             }
+//                     }
+//         })
+//             await Promise.all([
+//             uploadStream(transcodedStream, s3vidOutput),
+//             uploadStream(thumbnailStream, s3thumbOutput)
+//         ]);
 
-            console.log('Transcoding and thumbnail creation completed.');
-            updateTranscodingJournal(progressID, "completed")
-        }
-        catch (err) {
-            console.log(err)
-            res.status(500).send({ msg: 'Error transcoding video', error: err.message });
-        }
-    })
+//             console.log('Transcoding and thumbnail creation completed.');
+//             updateTranscodingJournal(progressID, "completed")
+//         }
+//         catch (err) {
+//             console.log(err)
+//             res.status(500).send({ msg: 'Error transcoding video', error: err.message });
+//         }
+//     })
 
 
 io.on("connection", (socket) => {
